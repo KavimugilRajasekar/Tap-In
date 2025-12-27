@@ -1,0 +1,188 @@
+# Flutter–Linux Bluetooth Fingerprint Authentication System
+
+## Overview
+
+This document explains **how a Flutter mobile application uses fingerprint authentication to unlock a Linux user session** by securely sending credentials over **Bluetooth**. The system enables **passwordless login** on Linux by integrating a mobile biometric check with the Linux **PAM (Pluggable Authentication Modules)** framework.
+
+The core idea is simple:
+
+> **The fingerprint is verified on the mobile phone**, and only a **cryptographically verified authentication token** is sent to the Linux system — the fingerprint data itself is never transmitted.
+
+---
+
+## High-Level Architecture
+
+The system consists of four major components:
+
+1. **Flutter Mobile Application**
+
+   * Performs fingerprint authentication using the phone’s biometric hardware
+   * Sends authenticated credentials to Linux via Bluetooth
+
+2. **Bluetooth Listener Daemon (Linux)**
+
+   * Receives authentication data from the mobile app
+   * Passes it to the helper daemon for verification
+
+3. **Authentication Helper Daemon**
+
+   * Validates received data (timestamp, nonce, HMAC)
+   * Generates short-lived authentication tokens
+
+4. **PAM Module**
+
+   * Checks for valid tokens during Linux login
+   * Grants access without a password if validation succeeds
+
+---
+
+## Fingerprint Authentication in Flutter
+
+### How Fingerprint Scanning Works
+
+1. The Flutter app uses platform biometric APIs (via plugins such as `local_auth`)
+2. The operating system (Android / iOS):
+
+   * Scans the user’s fingerprint
+   * Matches it against the secure hardware enclave
+3. The app **never receives fingerprint data**
+4. The OS returns only:
+
+   * **Authentication success or failure**
+
+This ensures biometric privacy and hardware-level security.
+
+---
+
+## Authentication Data Sent to Linux
+
+After successful fingerprint verification, the Flutter app prepares an authentication packet.
+
+### Packet Contents
+
+* **Username** (Linux account to unlock)
+* **Timestamp** (prevents delayed attacks)
+* **Nonce** (prevents replay attacks)
+* **HMAC Signature** (ensures authenticity and integrity)
+
+The packet is encoded as JSON and transmitted over a **paired Bluetooth connection**.
+
+---
+
+## Bluetooth Communication Flow
+
+### Step 1: Secure Pairing
+
+* Mobile device and Linux system are paired beforehand
+* Only trusted devices are allowed
+* Bluetooth encryption is enforced
+
+### Step 2: Data Transmission
+
+1. Flutter app opens a Bluetooth connection
+2. Sends the authentication JSON packet
+3. Closes the connection immediately after sending
+
+---
+
+## Helper Daemon Processing (Linux)
+
+The helper daemon is responsible for validating the received authentication request.
+
+### Validation Steps
+
+1. Parse incoming JSON data
+2. Verify timestamp (within allowed time window)
+3. Check nonce against replay cache
+4. Retrieve shared secret for the user
+5. Recalculate HMAC from received fields
+6. Compare with received HMAC
+
+### Token Generation
+
+If validation succeeds:
+
+* A **random authentication token** is generated
+* Token is valid for a very short duration (e.g., 20 seconds)
+* Token is written to:
+
+  ```
+  /var/run/mobile_auth.token
+  ```
+
+  Format:
+
+  ```
+  username:token:expiry
+  ```
+
+---
+
+## PAM-Based Linux Unlocking
+
+### How PAM Is Used
+
+Linux login managers (GDM, SDDM, LightDM, console login) rely on PAM for authentication.
+
+A custom PAM module is configured as **sufficient**, meaning:
+
+* If the module succeeds → login is granted
+* If it fails → fallback to password authentication
+
+### PAM Authentication Flow
+
+1. User initiates login on Linux
+2. PAM invokes the mobile authentication module
+3. Module checks for a valid token for the user
+4. If found:
+
+   * Token is consumed (deleted)
+   * Authentication succeeds
+5. If not found:
+
+   * Normal password login continues
+
+---
+
+## Supported Linux Environments
+
+This system works on any Linux environment that supports PAM:
+
+* GNOME (GDM)
+* KDE (SDDM)
+* XFCE (LightDM)
+* Console login
+* Ubuntu, Debian, Fedora, Arch, RHEL
+
+---
+
+## Security Design Principles
+
+* **No fingerprint data leaves the phone**
+* **Short-lived authentication tokens**
+* **Replay attack prevention using nonces**
+* **HMAC-based message authentication**
+* **Bluetooth device pairing enforcement**
+* **Token consumption after single use**
+
+---
+
+## End-to-End Workflow Summary
+
+1. User opens Flutter app
+2. Fingerprint is scanned and verified locally on the phone
+3. Flutter app creates a signed authentication request
+4. Request is sent to Linux via Bluetooth
+5. Linux helper daemon validates the request
+6. Temporary authentication token is generated
+7. User initiates Linux login
+8. PAM module verifies token
+9. Linux user session is unlocked
+
+---
+
+## Conclusion
+
+This system provides a **secure, passwordless Linux login mechanism** using a Flutter mobile application and fingerprint authentication. By combining mobile biometric security with Linux PAM’s modular design, the solution achieves strong authentication without compromising user privacy.
+
+The architecture is flexible, extensible, and well-suited for modern desktop security workflows where mobile devices act as trusted authentication tokens.
