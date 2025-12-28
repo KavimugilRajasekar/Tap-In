@@ -1,0 +1,3 @@
+# TapIn PAM Configuration
+auth    sufficient    pam_tapin.so
+account required      pam_tapin.so

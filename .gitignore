@@ -1,0 +1,53 @@
+# Build artifacts
+TapIn_PAM/libtapin_pam.so
+TapIn_PAM/tapin_helper
+TapIn_PAM/bluetooth_listener
+
+# Temporary files
+*.tmp
+*.log
+*.bak
+*~
+.DS_Store
+Thumbs.db
+*.swp
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+mtimes.dat
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Flutter build artifacts (for the tapin app)
+tapin/build/
+tapin/.dart_tool/
+tapin/*.lock
+tapin/pubspec.lock
+tapin/.packages
+tapin/ios/Flutter/.last_build_id
+
+# Linux system files
+/.*.swp
+*~
+*.tmp
+*.log
+
+# Development files that shouldn't be committed
+/tmp/
+/backup/
+/backups/
+
+# PAM related temporary files
+/var/run/tapin_auth.token
+/etc/tapin/shared_secret

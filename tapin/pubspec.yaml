@@ -44,6 +44,9 @@ dependencies:
   # Bluetooth communication
   flutter_blue_plus: ^1.35.2
   
+  # Cryptographic functions
+  crypto: ^3.0.3
+  
   # Launcher icons
   flutter_launcher_icons: ^0.13.1
 

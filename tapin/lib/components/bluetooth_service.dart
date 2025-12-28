@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart';
 
 class BluetoothService {
@@ -78,6 +79,57 @@ class BluetoothService {
       await device.disconnect();
     } catch (e) {
       print("Error disconnecting from device: $e");
+    }
+  }
+
+  // Send data to a device via Bluetooth
+  static Future<bool> writeDataToDevice(BluetoothDevice device, String data) async {
+    try {
+      // Connect to the device if not already connected
+      if (!device.isConnected) {
+        await device.connect(timeout: const Duration(seconds: 10));
+      }
+      
+      // Get services
+      List<BluetoothService> services = await device.discoverServices();
+      
+      // Look for the service used by TapIn (typically Serial Port Profile with UUID)
+      BluetoothService? targetService;
+      for (var service in services) {
+        // Standard Serial Port Profile UUID
+        if (service.uuid.toString().toLowerCase() == "00001101-0000-1000-8000-00805f9b34fb") {
+          targetService = service;
+          break;
+        }
+      }
+      
+      if (targetService == null) {
+        print("TapIn service not found on device");
+        return false;
+      }
+      
+      // Find the characteristic to write to
+      BluetoothCharacteristic? writeCharacteristic;
+      for (var characteristic in targetService.characteristics) {
+        // Check if this characteristic has write property
+        if (characteristic.properties.write || characteristic.properties.writeWithoutResponse) {
+          writeCharacteristic = characteristic;
+          break;
+        }
+      }
+      
+      if (writeCharacteristic == null) {
+        print("No writable characteristic found");
+        return false;
+      }
+      
+      // Write the data to the characteristic
+      await writeCharacteristic.write(utf8.encode(data));
+      print("Data sent successfully: $data");
+      return true;
+    } catch (e) {
+      print("Error writing data to device: $e");
+      return false;
     }
   }
 }

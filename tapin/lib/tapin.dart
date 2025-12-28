@@ -1,5 +1,8 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:crypto/crypto.dart';
 import 'components/bluetooth_service.dart';
 import 'components/secure_storage.dart';
 import 'components/fingerprint_auth.dart';
@@ -597,7 +600,7 @@ class _TapInScreenState extends State<TapInScreen>
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Fingerprint verified successfully! Now sending credentials to device...',
+            'Fingerprint verified successfully! Now sending authentication request to device...',
           ),
           backgroundColor: Colors.green,
         ),
@@ -617,20 +620,32 @@ class _TapInScreenState extends State<TapInScreen>
 
       // Check if credentials exist for this device
       if (deviceName != null && username != null && password != null) {
-        // In a real implementation, you would now send these credentials to the device
-        // For now, just show a message with the retrieved credentials
-        await Future.delayed(const Duration(seconds: 2));
-
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Credentials sent to ${deviceName} successfully!'),
-            backgroundColor: Colors.green,
-          ),
+        // Create authentication request with HMAC signature
+        String authRequest = await _createAuthRequest(username);
+        
+        // Send the authentication request to the Linux daemon via Bluetooth
+        bool success = await BluetoothService.writeDataToDevice(
+          _selectedDeviceForCredentials!.device,
+          authRequest,
         );
+        
+        if (success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Authentication request sent successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send authentication request'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
       } else {
         // No credentials found for this device
-        await Future.delayed(const Duration(seconds: 2));
-
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -765,6 +780,50 @@ class _TapInScreenState extends State<TapInScreen>
         ),
       );
     }
+  }
+
+  // Create authentication request with HMAC signature
+  Future<String> _createAuthRequest(String username) async {
+    // Get the shared secret from secure storage or use a default value
+    // In a real implementation, the shared secret should be configured in the app
+    String sharedSecret = await SecureStorage.readSecureData('shared_secret') ?? 'default_secret';
+    
+    // Create timestamp and nonce
+    int timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+    String nonce = _generateNonce();
+    
+    // Create the data to be signed: username:timestamp:nonce
+    String dataToSign = '$username:$timestamp:$nonce';
+    
+    // Generate HMAC signature
+    String hmac = await _generateHmac(dataToSign, sharedSecret);
+    
+    // Create JSON authentication request
+    Map<String, String> authRequest = {
+      'username': username,
+      'timestamp': timestamp.toString(),
+      'nonce': nonce,
+      'hmac': hmac,
+    };
+    
+    return jsonEncode(authRequest);
+  }
+  
+  // Generate a random nonce
+  String _generateNonce() {
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    final random = Random.secure();
+    return List.generate(16, (index) => chars[random.nextInt(chars.length)]).join();
+  }
+  
+  // Generate HMAC signature
+  Future<String> _generateHmac(String data, String secret) async {
+    // Create the HMAC-SHA256 hash
+    var bytes = utf8.encode(data);
+    var secretBytes = utf8.encode(secret);
+    var hmac = Hmac(sha256, secretBytes);
+    var digest = hmac.convert(bytes);
+    return digest.toString();
   }
 
   Widget _buildExpandableLabeledBox(

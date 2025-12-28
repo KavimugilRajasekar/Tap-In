@@ -1,0 +1,16 @@
+[Unit]
+Description=TapIn Bluetooth Listener Daemon
+After=bluetooth.service
+Requires=bluetooth.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/bluetooth_listener
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

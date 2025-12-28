@@ -1,0 +1,16 @@
+[Unit]
+Description=TapIn Helper Daemon
+After=network.target
+Wants=bluetooth.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/tapin_helper
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
