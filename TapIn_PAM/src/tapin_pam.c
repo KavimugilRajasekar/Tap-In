@@ -12,6 +12,7 @@
 #include <unistd.h>
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <sys/file.h>
 #include <fcntl.h>
 #include <time.h>
 #include <security/pam_appl.h>
@@ -39,8 +40,8 @@ static int read_auth_token(token_data_t *token) {
     char *username, *token_str, *expiry_str;
     time_t current_time;
     
-    // Check if token file exists
-    if (access(TOKEN_FILE, F_OK) == -1) {
+    // Check if token file exists and is readable
+    if (access(TOKEN_FILE, R_OK) == -1) {
         return PAM_AUTH_ERR;
     }
     
@@ -55,7 +56,44 @@ static int read_auth_token(token_data_t *token) {
         fclose(file);
         return PAM_AUTH_ERR;
     }
+    
+    // Immediately close the file and attempt to delete it (atomic read and delete)
     fclose(file);
+    
+    // Verify the file still exists (to prevent race conditions)
+    struct stat token_stat;
+    if (stat(TOKEN_FILE, &token_stat) != 0) {
+        // File was already deleted by another process
+        return PAM_AUTH_ERR;
+    }
+    
+    // Try to open and lock the file for exclusive access
+    int fd = open(TOKEN_FILE, O_RDONLY);
+    if (fd == -1) {
+        return PAM_AUTH_ERR;
+    }
+    
+    // Attempt to lock the file to prevent concurrent access
+    if (flock(fd, LOCK_SH | LOCK_NB) == -1) {
+        close(fd);
+        return PAM_AUTH_ERR; // Another process is already handling this token
+    }
+    
+    // Re-read the file content while locked
+    FILE *reopened_file = fdopen(fd, "r");
+    if (!reopened_file) {
+        close(fd);
+        return PAM_AUTH_ERR;
+    }
+    
+    // Read the token line again to make sure it's still valid
+    if (fgets(line, sizeof(line), reopened_file) == NULL) {
+        fclose(reopened_file);
+        return PAM_AUTH_ERR;
+    }
+    
+    // Close file but keep the fd open for the lock
+    fclose(reopened_file);
     
     // Parse the line: username:token:expiry
     char temp_line[MAX_LINE_LENGTH];
@@ -67,6 +105,7 @@ static int read_auth_token(token_data_t *token) {
     expiry_str = strtok(NULL, ":");
     
     if (!username || !token_str || !expiry_str) {
+        close(fd);
         return PAM_AUTH_ERR;
     }
     
@@ -85,8 +124,12 @@ static int read_auth_token(token_data_t *token) {
     if (current_time > token->expiry) {
         // Token expired, remove it
         unlink(TOKEN_FILE);
+        close(fd);
         return PAM_AUTH_ERR;
     }
+    
+    // Release the lock and close the file descriptor
+    close(fd);
     
     return PAM_SUCCESS;
 }

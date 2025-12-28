@@ -89,7 +89,18 @@ int validate_hmac(const char* data, const char* received_hmac, const char* secre
     }
     hex_result[len * 2] = '\0';
     
-    return strcmp(hex_result, received_hmac) == 0;
+    // Use constant-time comparison to prevent timing attacks
+    size_t hmac_len = strlen(received_hmac);
+    if (strlen(hex_result) != hmac_len) {
+        return 0; // Different lengths, not equal
+    }
+    
+    // Perform constant-time comparison
+    unsigned char result = 0;
+    for (i = 0; i < hmac_len; i++) {
+        result |= hex_result[i] ^ received_hmac[i];
+    }
+    return result == 0;
 }
 
 /*
@@ -151,19 +162,43 @@ int validate_auth_request(struct json_object* json_obj) {
 }
 
 /*
- * Function to generate a random authentication token
+ * Function to generate a random authentication token using /dev/urandom
  */
 void generate_auth_token(char* token, size_t size) {
     const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+    FILE *urandom;
     int i;
-    time_t t;
+    int random_byte;
     
-    srand((unsigned) time(&t));
+    // Open /dev/urandom for cryptographically secure random data
+    urandom = fopen("/dev/urandom", "r");
+    if (!urandom) {
+        // Fallback to less secure method if /dev/urandom is not available
+        syslog(LOG_WARNING, "Could not open /dev/urandom, using less secure random");
+        time_t t;
+        srand((unsigned) time(&t));
+        
+        for (i = 0; i < size - 1; i++) {
+            int key = rand() % (int)(sizeof charset - 1);
+            token[i] = charset[key];
+        }
+        token[size - 1] = '\0';
+        return;
+    }
     
     for (i = 0; i < size - 1; i++) {
-        int key = rand() % (int)(sizeof charset - 1);
-        token[i] = charset[key];
+        // Read a random byte and use it as an index
+        if (fread(&random_byte, sizeof(random_byte), 1, urandom) == 1) {
+            // Use the random byte to select a character from the charset
+            int key = (unsigned char)random_byte % (int)(sizeof charset - 1);
+            token[i] = charset[key];
+        } else {
+            // Fallback to a predictable character if random read fails
+            token[i] = 'x';
+        }
     }
+    
+    fclose(urandom);
     token[size - 1] = '\0';
 }
 
@@ -270,8 +305,8 @@ int setup_unix_socket() {
         return -1;
     }
     
-    // Set permissions for socket
-    chmod(SOCKET_PATH, 0666);
+    // Set secure permissions for socket - only root and the daemon user can access
+    chmod(SOCKET_PATH, 0600);
     
     return sock;
 }

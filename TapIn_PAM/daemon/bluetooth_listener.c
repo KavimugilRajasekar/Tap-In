@@ -21,11 +21,46 @@
 #include <syslog.h>
 #include <sys/un.h>
 #include <json-c/json.h>
+#include <sys/wait.h>
 
 #define MAX_BUFFER_SIZE 1024
 #define SERVICE_NAME "TapIn Authentication Service"
-#define SERVICE_UUID "00001101-0000-1000-8000-00805F9B34FB"  // Standard Serial Port Profile UUID
+#define SERVICE_UUID "00001101-0000-1000-8000-00805f9b34fb"  // Standard Serial Port Profile UUID
 #define SOCKET_PATH "/tmp/tapin_helper.sock"
+
+// Function to check if a Bluetooth device is paired/trusted
+int is_device_paired(const char* device_address) {
+    char command[256];
+    int result;
+    
+    // Command to check if the device is paired using bluetoothctl
+    snprintf(command, sizeof(command), 
+            "timeout 5 bluetoothctl info %s 2>/dev/null | grep -q 'Paired: yes' && echo 1 || echo 0");
+    
+    // For security, we replace the device address in the command template
+    char actual_command[256];
+    snprintf(actual_command, sizeof(actual_command), 
+            "timeout 5 bluetoothctl info %s 2>/dev/null | grep -q 'Paired: yes' && echo 1 || echo 0", 
+            device_address);
+    
+    // Execute the command and capture output
+    FILE* pipe = popen(actual_command, "r");
+    if (!pipe) {
+        syslog(LOG_ERR, "Failed to execute bluetoothctl command");
+        return 0;
+    }
+    
+    char result_str[10];
+    if (fgets(result_str, sizeof(result_str), pipe) != NULL) {
+        result = atoi(result_str);
+    } else {
+        result = 0;
+    }
+    
+    pclose(pipe);
+    
+    return result;
+}
 
 // Global flag for signal handling
 static volatile sig_atomic_t running = 1;
@@ -231,6 +266,15 @@ int main(int argc, char *argv[]) {
         char client_address[18];
         ba2str(&client_addr.rc_bdaddr, client_address);
         syslog(LOG_INFO, "Connection accepted from: %s", client_address);
+        
+        // Verify that the connecting device is paired/trusted
+        if (!is_device_paired(client_address)) {
+            syslog(LOG_WARNING, "Unpaired device attempted connection: %s", client_address);
+            close(client_sock);
+            continue;  // Skip processing for unpaired devices
+        }
+        
+        syslog(LOG_INFO, "Paired device verified: %s", client_address);
         
         // Read data from the client
         memset(buffer, 0, sizeof(buffer));

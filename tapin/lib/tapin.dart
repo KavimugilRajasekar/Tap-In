@@ -621,14 +621,25 @@ class _TapInScreenState extends State<TapInScreen>
       // Check if credentials exist for this device
       if (deviceName != null && username != null && password != null) {
         // Create authentication request with HMAC signature
-        String authRequest = await _createAuthRequest(username);
-        
+        String authRequest;
+        try {
+          authRequest = await _createAuthRequest(username);
+        } catch (e) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Authentication error: $e'),
+              backgroundColor: Colors.red,
+            ),
+          );
+          return;
+        }
+
         // Send the authentication request to the Linux daemon via Bluetooth
         bool success = await BluetoothService.writeDataToDevice(
           _selectedDeviceForCredentials!.device,
           authRequest,
         );
-        
+
         if (success) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
@@ -784,20 +795,26 @@ class _TapInScreenState extends State<TapInScreen>
 
   // Create authentication request with HMAC signature
   Future<String> _createAuthRequest(String username) async {
-    // Get the shared secret from secure storage or use a default value
-    // In a real implementation, the shared secret should be configured in the app
-    String sharedSecret = await SecureStorage.readSecureData('shared_secret') ?? 'default_secret';
-    
+    // Get the shared secret from secure storage
+    // The app should not proceed if no shared secret is configured
+    String? sharedSecret = await SecureStorage.readSecureData('shared_secret');
+
+    if (sharedSecret == null || sharedSecret.isEmpty) {
+      throw Exception(
+        'Shared secret not configured. Please set up the shared secret in the app settings.',
+      );
+    }
+
     // Create timestamp and nonce
     int timestamp = DateTime.now().millisecondsSinceEpoch ~/ 1000;
     String nonce = _generateNonce();
-    
+
     // Create the data to be signed: username:timestamp:nonce
     String dataToSign = '$username:$timestamp:$nonce';
-    
+
     // Generate HMAC signature
     String hmac = await _generateHmac(dataToSign, sharedSecret);
-    
+
     // Create JSON authentication request
     Map<String, String> authRequest = {
       'username': username,
@@ -805,17 +822,21 @@ class _TapInScreenState extends State<TapInScreen>
       'nonce': nonce,
       'hmac': hmac,
     };
-    
+
     return jsonEncode(authRequest);
   }
-  
+
   // Generate a random nonce
   String _generateNonce() {
-    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    const chars =
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     final random = Random.secure();
-    return List.generate(16, (index) => chars[random.nextInt(chars.length)]).join();
+    return List.generate(
+      16,
+      (index) => chars[random.nextInt(chars.length)],
+    ).join();
   }
-  
+
   // Generate HMAC signature
   Future<String> _generateHmac(String data, String secret) async {
     // Create the HMAC-SHA256 hash
@@ -824,6 +845,17 @@ class _TapInScreenState extends State<TapInScreen>
     var hmac = Hmac(sha256, secretBytes);
     var digest = hmac.convert(bytes);
     return digest.toString();
+  }
+
+  // Method to set the shared secret
+  Future<void> _setSharedSecret(String secret) async {
+    await SecureStorage.writeSecureData('shared_secret', secret);
+    print('Shared secret updated successfully');
+  }
+
+  // Method to get the shared secret
+  Future<String?> _getSharedSecret() async {
+    return await SecureStorage.readSecureData('shared_secret');
   }
 
   Widget _buildExpandableLabeledBox(

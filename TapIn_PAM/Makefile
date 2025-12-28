@@ -1,7 +1,7 @@
 # Makefile for TapIn PAM Module and Daemons
 
 CC = gcc
-CFLAGS = -Wall -Wextra -std=c99 -O2 -I/usr/include/bluetooth
+CFLAGS = -Wall -Wextra -std=c99 -O2 -D_GNU_SOURCE -I/usr/include/bluetooth
 PAM_CFLAGS = -fPIC -DPAM_STATIC
 LDFLAGS = -shared
 PAM_LIBS = -lpam
